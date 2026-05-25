@@ -37,7 +37,6 @@ import {
   onSnapshot,
   enableIndexedDbPersistence,
   enableNetwork,
-  disableNetwork,
 } from "firebase/firestore";
 
 // --- FIREBASE CONFIGURAÇÃO ---
@@ -51,23 +50,27 @@ const USER_FIREBASE_CONFIG = {
   measurementId: "G-1Z6TN3W4PM",
 };
 
+// TS-Safe check para evitar erros de compilação na Vercel
 const firebaseConfig =
-  typeof __firebase_config !== "undefined"
-    ? JSON.parse(__firebase_config)
+  typeof window !== "undefined" && (window as any).__firebase_config
+    ? JSON.parse((window as any).__firebase_config)
     : USER_FIREBASE_CONFIG;
 const app =
   getApps().find((a) => a.name === "FC26") ||
   initializeApp(firebaseConfig, "FC26");
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== "undefined" ? __app_id : "default-app-id";
+
+// TS-Safe check para __app_id
+const appId =
+  typeof window !== "undefined" && (window as any).__app_id
+    ? (window as any).__app_id
+    : "default-app-id";
+
+// --- ATIVAR CACHE OFFLINE ---
 try {
   enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code == "failed-precondition") {
-      console.warn("Persistência ativada noutro separador.");
-    } else if (err.code == "unimplemented") {
-      console.warn("O navegador não suporta cache offline.");
-    }
+    console.warn("Aviso de persistência:", err.code);
   });
 } catch (e) {
   console.log("Erro ao inicializar persistência", e);
@@ -649,7 +652,7 @@ const BracketNode = ({
               className={`absolute ${
                 isLeft
                   ? "right-0 border-r-2 rounded-br-xl"
-                  : "left-0 border-l-2 rounded-bl-xl"
+                  : "left-0 border-l-2 rounded-tl-xl"
               } top-0 bottom-1/2 w-2 md:w-4 border-b-2 border-[#222]`}
             />
             <BracketNode
@@ -790,20 +793,13 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
   const [knockoutScores, setKnockoutScores] = useState({});
 
   // ----------------------------------------------------
-  // BLOQUEIO DE ACESSO
-  // Mantém a chamada do prop original para redirecionar o visitante
-
+  // RECONEXÃO AUTOMÁTICA (VISIBILITY API)
   // ----------------------------------------------------
-  // --- RECONEXÃO AUTOMÁTICA (VISIBILITY API) ---
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        // O utilizador voltou ao site! Forçar o Firebase a reconectar e atualizar os dados
         console.log("App voltou a ficar ativa. A reconectar...");
         enableNetwork(db).catch(console.error);
-      } else {
-        // O utilizador minimizou o site (opcional: podemos desligar a rede para poupar bateria do telemóvel)
-        // disableNetwork(db).catch(console.error);
       }
     };
 
@@ -813,6 +809,9 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
     };
   }, []);
 
+  // ----------------------------------------------------
+  // BLOQUEIO DE ACESSO
+  // ----------------------------------------------------
   useEffect(() => {
     if (isLoaded && phase === "setup" && !isAdmin) {
       if (onAccessDenied) onAccessDenied();
@@ -835,11 +834,12 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        if (
-          typeof __initial_auth_token !== "undefined" &&
-          __initial_auth_token
-        ) {
-          await signInWithCustomToken(auth, __initial_auth_token);
+        const initialAuthToken =
+          typeof window !== "undefined"
+            ? (window as any).__initial_auth_token
+            : undefined;
+        if (initialAuthToken) {
+          await signInWithCustomToken(auth, initialAuthToken);
         } else {
           await signInAnonymously(auth);
         }
@@ -1310,7 +1310,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
     };
     const Q4 = {
       id: "Q4",
-      p1: getWinner("O7", O7.p1, O7.p2) || "Venc. O7",
+      p1: getWinner("O7", Q3.p1, Q3.p2) || "Venc. Q3",
       p2: getWinner("O8", O8.p1, O8.p2) || "Venc. O8",
       tag: "Quartas 4",
     };
@@ -1443,12 +1443,12 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
       });
     }
 
-    Object.values(statsMap).forEach((st) => {
+    Object.values(statsMap).forEach((st: any) => {
       st.sg = st.gp - st.gc;
       st.aprov = st.j > 0 ? ((st.pts / (st.j * 3)) * 100).toFixed(1) : "0.0";
     });
 
-    return Object.values(statsMap).sort((a, b) => {
+    return Object.values(statsMap).sort((a: any, b: any) => {
       if (b.pts !== a.pts) return b.pts - a.pts;
       if (b.sg !== a.sg) return b.sg - a.sg;
       if (b.gp !== a.gp) return b.gp - a.gp;
@@ -1494,18 +1494,15 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
     if (
       grandChampion &&
       !hasFiredConfetti &&
-      typeof window.confetti === "function"
+      typeof (window as any).confetti === "function"
     ) {
-      const timer = setTimeout(() => {
-        window.confetti({
-          particleCount: 200,
-          spread: 100,
-          origin: { y: 0.5 },
-          colors: ["#fbbf24", "#f59e0b", "#ffffff", "#eab308"],
-        });
-        setHasFiredConfetti(true);
-      }, 1000);
-      return () => clearTimeout(timer);
+      (window as any).confetti({
+        particleCount: 200,
+        spread: 100,
+        origin: { y: 0.5 },
+        colors: ["#fbbf24", "#f59e0b", "#ffffff", "#eab308"],
+      });
+      setHasFiredConfetti(true);
     }
   }, [grandChampion, hasFiredConfetti]);
 
@@ -1660,19 +1657,6 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
         </div>
       )}
 
-      {/* --- SETUP (VISITANTE / BLOQUEIO DE TELA) --- */}
-      {phase === "setup" && !isAdmin && (
-        <div className="flex flex-col items-center justify-center min-h-[50vh] text-center animate-in fade-in duration-500">
-          <Shield className="text-zinc-600 mb-4" size={48} />
-          <h2 className="text-white tracking-[0.2em] uppercase text-sm font-black mb-2">
-            Acesso Restrito
-          </h2>
-          <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold">
-            O campeonato ainda não foi iniciado pelo administrador.
-          </p>
-        </div>
-      )}
-
       {/* --- SETUP (ADMIN) --- */}
       {phase === "setup" && isAdmin && (
         <div className="max-w-5xl mx-auto w-full animate-in fade-in pt-8">
@@ -1685,7 +1669,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                 const target = e.currentTarget;
                 target.style.display = "none";
                 if (target.nextSibling)
-                  target.nextSibling.style.display = "flex";
+                  (target.nextSibling as HTMLElement).style.display = "flex";
               }}
             />
             <div className="hidden w-20 h-20 bg-white/5 border border-white/10 rounded-full items-center justify-center mb-4 backdrop-blur-md">
@@ -1798,8 +1782,11 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                 alt="Brandão Cup Logo"
                 className="w-12 h-12 md:w-14 md:h-14 object-contain"
                 onError={(e) => {
-                  e.target.style.display = "none";
-                  e.target.nextSibling.style.display = "flex";
+                  (e.target as HTMLElement).style.display = "none";
+                  if (e.target.nextSibling) {
+                    (e.target.nextSibling as HTMLElement).style.display =
+                      "flex";
+                  }
                 }}
               />
               <div className="hidden w-14 h-14 bg-white/5 backdrop-blur-md border border-white/10 rounded-full items-center justify-center">
@@ -1877,57 +1864,67 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
       {/* --- TOURNAMENT --- */}
       {phase === "tournament" && (
         <div className="pt-8">
-          <div className="flex flex-col items-center justify-center gap-5 mb-10 print:hidden relative z-20">
-            {/* Título e Logo */}
-            <div className="flex items-center justify-center gap-3 md:gap-4 w-full">
+          <div className="flex flex-col xl:flex-row items-center justify-between gap-6 mb-8 print:hidden relative z-20">
+            <div className="flex items-center gap-4 w-full xl:w-auto justify-center xl:justify-start">
               <img
                 src="/logo.png"
-                alt="Logo"
-                className="w-10 h-10 md:w-12 md:h-12 object-contain"
+                alt="Brandão Cup Logo"
+                className="w-10 h-10 md:w-14 md:h-14 object-contain"
                 onError={(e) => {
-                  e.currentTarget.style.display = "none";
+                  (e.target as HTMLElement).style.display = "none";
+                  if (e.target.nextSibling) {
+                    (e.target.nextSibling as HTMLElement).style.display =
+                      "flex";
+                  }
                 }}
               />
-              <h1 className="text-xl md:text-3xl font-black uppercase tracking-widest text-white flex items-center">
-                KINGS LEAGUE BRANDÃO
-                {grandChampion ? (
-                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-600 ml-3"></span>
-                ) : (
-                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.7)] animate-pulse ml-3"></span>
-                )}
-              </h1>
+              <div className="hidden w-14 h-14 bg-white/5 backdrop-blur-md border border-white/10 rounded-full items-center justify-center">
+                <Shield size={24} className="text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl md:text-2xl font-black uppercase tracking-widest text-white flex items-center gap-3">
+                  BRANDÃO CUP
+                  {grandChampion ? (
+                    <div className="flex items-center gap-2 border border-white/10 bg-white/5 backdrop-blur-md px-3 py-1.5 rounded-full shrink-0 shadow-lg">
+                      <span className="w-2 h-2 rounded-full bg-zinc-500 shadow-[0_0_8px_rgba(113,113,122,0.8)]"></span>
+                      <span className="text-[9px] font-black tracking-widest uppercase text-white hidden sm:block">
+                        Competição Encerrada
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 border border-green-500/30 bg-green-500/10 px-2.5 py-1 rounded-md shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.7)] animate-pulse"></span>
+                      <span className="text-[8px] md:text-[9px] font-black tracking-widest uppercase text-green-500 hidden sm:block">
+                        Em Andamento
+                      </span>
+                    </div>
+                  )}
+                </h1>
+              </div>
             </div>
 
-            {/* Botões de Ação (Abaixo do Título) */}
-            {isAdmin && (
-              <div className="flex items-center justify-center gap-3">
-                <button className="text-zinc-600 border border-[#222] bg-transparent rounded-full px-5 py-2 text-[9px] font-bold tracking-widest uppercase flex items-center gap-2 cursor-not-allowed">
-                  <ArrowLeft size={12} /> Desfazer
-                </button>
-                <button
-                  onClick={simulateGroupMatches}
-                  className="text-zinc-400 hover:text-white border border-[#222] bg-transparent hover:bg-[#111] rounded-full px-5 py-2 text-[9px] font-bold tracking-widest uppercase flex items-center gap-2 transition-colors"
-                >
-                  <Zap size={12} /> Simular Resultados
-                </button>
-              </div>
-            )}
-
-            {/* Abas */}
-            <div className="w-full mt-4">
-              <div className="flex overflow-x-auto custom-scrollbar gap-2 md:gap-3 w-full pb-3 md:pb-0 justify-start md:justify-center px-4 md:px-0">
+            <div className="w-full xl:w-auto">
+              <div className="flex overflow-x-auto custom-scrollbar gap-2 md:gap-3 w-full pb-3 md:pb-0 md:flex-wrap md:justify-center md:bg-white/5 md:backdrop-blur-md md:p-1.5 md:rounded-full md:border md:border-white/10">
                 <TabBtn
                   id="groups"
                   active={activeTab}
                   onClick={setActiveTab}
+                  icon={LayoutGrid}
                   label="Grupos"
+                />
+                <TabBtn
+                  id="teams"
+                  active={activeTab}
+                  onClick={setActiveTab}
+                  icon={Shield}
+                  label="Times"
                 />
                 <TabBtn
                   id="general"
                   active={activeTab}
                   onClick={setActiveTab}
                   icon={ListOrdered}
-                  label="Classificação Geral"
+                  label="Geral"
                 />
                 <TabBtn
                   id="knockout"
@@ -1935,13 +1932,6 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                   onClick={setActiveTab}
                   icon={Swords}
                   label="Mata-Mata"
-                />
-                <TabBtn
-                  id="teams"
-                  active={activeTab}
-                  onClick={setActiveTab}
-                  icon={SoccerBallIcon}
-                  label="Artilharia"
                 />
                 <TabBtn
                   id="summary"
@@ -1956,27 +1946,27 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
 
           {/* PÓDIO DO CAMPEÃO */}
           {grandChampion && (
-            <div className="max-w-xl mx-auto mb-10 mt-4 animate-in slide-in-from-bottom-8 duration-1000 px-4 md:px-0">
-              <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-6 md:p-8 relative overflow-hidden shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] flex flex-col items-center">
+            <div className="max-w-3xl mx-auto mb-12 mt-4 animate-in slide-in-from-bottom-8 duration-1000 px-4 md:px-0">
+              <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-8 md:p-12 relative overflow-hidden shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] flex flex-col items-center">
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/3 h-[1px] bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
                 <Trophy
-                  size={24}
+                  size={28}
                   strokeWidth={1.5}
-                  className="text-amber-500 mb-4 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                  className="text-amber-500 mb-6 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]"
                 />
-                <h2 className="text-zinc-500 font-bold text-[9px] md:text-[10px] tracking-[0.4em] uppercase mb-6">
+                <h2 className="text-zinc-500 font-bold text-[10px] md:text-xs tracking-[0.4em] uppercase mb-8">
                   O Grande Campeão
                 </h2>
-                <div className="flex flex-col md:flex-row items-center gap-5 md:gap-8 z-10 w-full justify-center">
+                <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10 z-10 w-full justify-center">
                   <TeamLogo
                     src={grandChampion.team.logo}
-                    className="w-16 h-16 md:w-20 md:h-20 object-contain drop-shadow-2xl"
+                    className="w-20 h-20 md:w-28 md:h-28 object-contain drop-shadow-2xl"
                   />
-                  <div className="flex flex-col items-center md:items-start border-t md:border-t-0 md:border-l border-white/10 pt-4 md:pt-0 md:pl-8">
-                    <span className="text-white font-black text-2xl md:text-3xl uppercase tracking-wider mb-1 text-center md:text-left leading-none drop-shadow-lg">
+                  <div className="flex flex-col items-center md:items-start border-t md:border-t-0 md:border-l border-white/10 pt-6 md:pt-0 md:pl-10">
+                    <span className="text-white font-black text-3xl md:text-5xl uppercase tracking-wider mb-2 text-center md:text-left leading-none drop-shadow-lg">
                       {grandChampion.name}
                     </span>
-                    <span className="text-amber-500 font-bold text-[9px] md:text-xs uppercase tracking-[0.3em]">
+                    <span className="text-amber-500 font-bold text-[10px] md:text-sm uppercase tracking-[0.3em]">
                       {grandChampion.team.name}
                     </span>
                   </div>
@@ -1988,6 +1978,16 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
           {/* ABA DE GRUPOS */}
           {activeTab === "groups" && (
             <div className="space-y-4 max-w-7xl mx-auto animate-in fade-in pb-10">
+              {isAdmin && (
+                <div className="flex justify-end print:hidden">
+                  <button
+                    onClick={simulateGroupMatches}
+                    className="text-[#666] hover:text-white text-[10px] font-bold tracking-widest uppercase flex items-center gap-2 transition-colors bg-white/5 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10 mb-2 hover:bg-white/10"
+                  >
+                    <Zap size={12} /> Simular Todos os Jogos
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-[340px] sm:max-w-none mx-auto">
                 {GROUPS_KEYS.map((g) => (
                   <GroupTable
@@ -2003,7 +2003,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
             </div>
           )}
 
-          {/* ABA DE TIMES / ARTILHARIA */}
+          {/* ABA DE TIMES */}
           {activeTab === "teams" && (
             <div className="max-w-5xl mx-auto w-full animate-in fade-in duration-500">
               <div className="bg-[#050505]/80 backdrop-blur-md rounded-3xl overflow-hidden border border-white/5 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)]">
@@ -2239,13 +2239,14 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                         <p className="text-white font-black uppercase text-sm truncate w-full mt-0.5">
                           {overallStatsTable
                             .slice()
-                            .sort((a, b) => b.gp - a.gp)[0]?.assign?.player ||
-                            "-"}
+                            .sort((a: any, b: any) => b.gp - a.gp)[0]?.assign
+                            ?.player || "-"}
                         </p>
                         <p className="text-blue-400 font-bold text-[11px] mt-1 truncate">
                           {overallStatsTable
                             .slice()
-                            .sort((a, b) => b.gp - a.gp)[0]?.gp || 0}{" "}
+                            .sort((a: any, b: any) => b.gp - a.gp)[0]?.gp ||
+                            0}{" "}
                           Gols Marcados
                         </p>
                       </div>
@@ -2265,15 +2266,16 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                         <p className="text-white font-black uppercase text-sm truncate w-full mt-0.5">
                           {overallStatsTable
                             .slice()
-                            .filter((s) => s.j > 0)
-                            .sort((a, b) => a.gc - b.gc)[0]?.assign?.player ||
-                            "-"}
+                            .filter((s: any) => s.j > 0)
+                            .sort((a: any, b: any) => a.gc - b.gc)[0]?.assign
+                            ?.player || "-"}
                         </p>
                         <p className="text-green-400 font-bold text-[11px] mt-1 truncate">
                           {overallStatsTable
                             .slice()
-                            .filter((s) => s.j > 0)
-                            .sort((a, b) => a.gc - b.gc)[0]?.gc || 0}{" "}
+                            .filter((s: any) => s.j > 0)
+                            .sort((a: any, b: any) => a.gc - b.gc)[0]?.gc ||
+                            0}{" "}
                           Gols Sofridos
                         </p>
                       </div>
@@ -2323,7 +2325,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                           </tr>
                         </thead>
                         <tbody className="bg-[#0f0f0f]">
-                          {overallStatsTable.map((st, idx) => (
+                          {overallStatsTable.map((st: any, idx) => (
                             <tr
                               key={st.assign.player}
                               className="border-b border-[#1a1a1a] hover:bg-[#151515] transition-colors relative"
@@ -2457,7 +2459,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                       <div className="space-y-3">
                         {knockoutPlayers.slice(0, 8).map((p) => {
                           const isDrawn = knockoutDraw.some(
-                            (m) => m.p1.assign.player === p.assign.player
+                            (m: any) => m.p1.assign.player === p.assign.player
                           );
                           return (
                             <div
@@ -2496,7 +2498,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                       <div className="space-y-3">
                         {knockoutPlayers.slice(8, 16).map((p) => {
                           const isDrawn = knockoutDraw.some(
-                            (m) => m.p2.assign.player === p.assign.player
+                            (m: any) => m.p2.assign.player === p.assign.player
                           );
                           return (
                             <div
@@ -2558,7 +2560,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                         Confrontos Definidos
                       </h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-                        {knockoutDraw.map((m, i) => (
+                        {knockoutDraw.map((m: any, i) => (
                           <div
                             key={i}
                             className="bg-[#050505] border border-[#1a1a1a] rounded-3xl p-4 md:p-5 text-center shadow-2xl animate-in zoom-in duration-300 relative overflow-hidden"
@@ -2702,7 +2704,7 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
               </div>
 
               {activeSummaryTab === "groups" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-[340px] sm:max-w-none mx-auto">
                   {GROUPS_KEYS.map((g) => {
                     const groupMatches = matches.filter((m) => m.group === g);
                     if (groupMatches.length === 0) return null;
@@ -2764,11 +2766,11 @@ export default function FC26App({ onBack, isAdmin, onAccessDenied }) {
                     if (activeSummaryTab === "final") filterTag = "Final";
 
                     const filteredMatches = allKnockoutMatchesFlat.filter(
-                      (m) => m.tag && m.tag.includes(filterTag)
+                      (m: any) => m.tag && m.tag.includes(filterTag)
                     );
                     if (filteredMatches.length === 0) return null;
 
-                    return filteredMatches.map((m) => {
+                    return filteredMatches.map((m: any) => {
                       const score = knockoutScores[m.id] || {
                         s1: "",
                         s2: "",
